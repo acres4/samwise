@@ -39,7 +39,7 @@ class Samwise
 				
 				# If the assignee changed, that's worth remarking upon.
 				if issueHash["assignee"]["login"] != storedIssue["assignee"]["login"] then
-					remarks.push("* Assignee changed from @#{storedIssue['assignee']['login']} to @#{issueHash['assignee']['login']}")
+					remarks.push("* _Assignee changed from_ @#{storedIssue['assignee']['login']} _to_ @#{issueHash['assignee']['login']}")
 				end
 				
 				# Figure out which labels were added and removed.
@@ -53,7 +53,7 @@ class Samwise
 				["removed", "added"].each do |action|
 					labelDifference[action].each do |label|
 						issueHash["labelEvents"].push({label:label, action:action, date:issueHash["updated_at"]})
-						remarks.push("* #{action.capitalize} label #{label['name']}")
+						remarks.push("* _#{action.capitalize} label_ **#{label['name']}**")
 					end
 				end
 				
@@ -66,9 +66,9 @@ class Samwise
 				# Add the remarks to Github
 				if remarks.length > 0 then
 					joinedRemarks = remarks.join("\n");
-					commentBody = "#{issueHash["updated_at"]}\n#{joinedRemarks}"
+					timestamp = DateTime.parse(issueHash["updated_at"]).strftime("%A, %B %e, %l:%M %P, %Z")
+					commentBody = "#{timestamp}\n#{joinedRemarks}"
 					@github.issues.comments.create(@user, @repo, issue.number, body:commentBody)
-				else
 				end
 				
 				# Store changes to the database

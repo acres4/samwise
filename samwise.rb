@@ -74,7 +74,7 @@ class Samwise
 				# Store changes to the database
 				@db["issues"].update({"number" => issue.number}, issueHash)
 			else
-				#This is a new issue.
+				# This is a new issue.
 				
 				issueHash["labelEvents"] = issueHash["labels"].inject([]) { |a, label| a.push({ label:label, action:"added", date:issueHash["created_at"] }) }
 				issueHash["commentEvents"] = []
@@ -100,4 +100,5 @@ loop do
 	samwise.update()
 	endTime = Time.new
 	puts "Updated; took #{endTime-startTime}s\n"
+	sleep(30)
 end

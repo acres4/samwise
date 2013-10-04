@@ -90,7 +90,7 @@ class GrindReport
 		end
 		
 		opened = openIssues.select do |issue|
-			(issue["events"].index { |event| event["actor"]["login"] == login && event["event"] == "mentioned" }) != nil
+			issue["user"] && issue["user"]["login"] == login
 		end
 		
 		s += "<div class=\"section assigned\">\n"

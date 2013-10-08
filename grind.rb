@@ -25,12 +25,16 @@ class GrindReport
 		@db = MongoClient.new(@dbhost, @dbport).db(@dbname)
 	end
 	
-	def sendRecap(interval=86400) # 86400 = 24 hours in seconds
+	def sendRecap(interval=86400, user=nil) # 86400 = 24 hours in seconds
 		issuesByMilestone = {}
-		orphanedIssues = []
 
-		people = @db["people"].find().to_a
 		issues = @db["issues"].find().to_a
+		
+		if user then
+			people = [user]
+		else
+			people = @db["people"].find().to_a
+		end
 		
 		issues.each do |issue|
 			next unless dateStringInInterval(issue["updated_at"], interval)
@@ -40,35 +44,66 @@ class GrindReport
 				cat = getIssueCategory(issue, interval)
 				milestone[cat] ||= []
 				milestone[cat].push(issue)
-			else
-				orphanedIssues.push(issue) unless issue["state"] == "open"
 			end
 		end
 		
-		report = renderReport(issuesByMilestone, orphanedIssues)
+		report = renderReport(issues, issuesByMilestone)
 		people.each do |person|
 			puts "Sending to #{person['email']} (@#{person['login']})"
 			personalReport = report.sub("___PERSONAL_SECTION___", renderPersonal(person["login"], issues))
-			#puts personalReport
+			puts personalReport
 			sendEmail("Daily grind report", personalReport, [person["email"]])
 		end
 	end
 	
-	def renderReport(issuesByMilestone, orphanedIssues)
+	def renderReport(issues, issuesByMilestone)
 		milestoneData = @github.issues.milestones.list("acres4", "documentation")
 		s = "<html><head><style>#{stylesheet}</style></head><body><h1>Grind report for #{Time.now.strftime('%A, %B %e')}</h1>\n"
 		milestoneActivityCounts = milestoneData.inject([]) { |counts, milestone| counts.push({ milestone:milestone, count:eventsForMilestone(issuesByMilestone[milestone.title])})}
 		milestoneActivityCounts.sort! { |a, b| b[:count] <=> a[:count] }
 		milestoneActivityCounts.each do |milestoneCount|
 			milestone = milestoneCount[:milestone]
-			s += renderMilestone(milestone, issuesByMilestone[milestone.title])
+			s += renderMilestone(milestone, issuesByMilestone[milestone.title], issues)
 		end
 		
-		s += renderOrphanedIssues(orphanedIssues) if orphanedIssues.length > 0
+		s += renderOrphanedIssues(issues)
+		
+		s += renderWorkload(issues)
 		
 		s += "___PERSONAL_SECTION___\n"
 		
 		s += "</body></html>"
+		
+		return s
+	end
+	
+	def renderWorkload(issues)
+		issueCountsByAssignee = {}
+		openIssues = issues.select { |issue| issue["state"] == "open" }
+		openIssues.each do |issue|
+			next unless issue["assignee"] && issue["assignee"]["login"]
+			user = issue["assignee"]["login"]
+			issueCountsByAssignee[user] = 0 unless issueCountsByAssignee[user]
+			issueCountsByAssignee[user] += 1
+		end
+		
+		issueCounts = []
+		issueCountsByAssignee.each do |assignee, count|
+			issueCounts.push({'assignee'=>assignee, 'count'=>count})
+		end
+		
+		issueCounts.sort! { |a, b| b["count"] <=> a["count"] }
+		
+		s = ""
+		s += "<div class=\"workload\">"
+		s += "<h1>Workload</h1>\n"
+		s += "<p>This is a breakdown of how many open issues each assignee has across all projects.</p>"
+		s += "<ul>\n"
+		issueCounts.each { |line|
+			percentage = (100.0*line["count"]/openIssues.length).round(0)
+			s += "<li><span class=\"user\">#{line['assignee']}</span>: <span class=\"count\">#{line['count']}</span> open issue#{line['count'] == 1 ? '' : 's'} (<span class=\"percentage\">#{percentage}%</span>)</li>\n"
+		}
+		s += "</ul>\n"
 		
 		return s
 	end
@@ -111,13 +146,50 @@ class GrindReport
 		return s
 	end
 	
-	def renderOrphanedIssues(orphanedIssues)
+	def renderOrphanedIssues(issues)
+		orphanedIssues = []
+		issues.each do |issue|
+			next unless issue['state'] == 'open' # closed issues are not orphans
+			
+			# all issues must have milestones
+			if not issue['milestone'] then
+				orphanedIssues.push({'issue'=>issue, 'reason'=>'No milestone'})
+				next
+			end
+			
+			# all issues must have assignees
+			if not issue['assignee'] then
+				orphanedIssues.push({'issue'=>issue, 'reason'=>'No assignee'})
+				next
+			end
+			
+			# all issues must have at least one of these mandatory labels
+			mandatoryLabels = ['active', 'resolved', 'code complete']
+			labeled = false
+			issue['labels'].each do |label|
+				if mandatoryLabels.include? label["name"] then
+					labeled = true
+					break
+				end
+			end
+			
+			unless labeled then
+				orphanedIssues.push({'issue'=>issue, 'reason'=>'Needs status label'})
+			end
+		end
+		
+		orphanedIssues.sort! { |a,b| a['issue']['user']['login'] <=> b['issue']['user']['login'] }
+		
 		s = ""
 		s += "<div class=\"orphaned\">\n"
 		s += "<h1>Orphaned Issues</h1>\n"
-		s += "<p>The following issues don't have milestones attached to them, and might be hard to find in Github.</p>\n"
+		s += "<p>The following issues might be hard to find in Github, since they either lack milestones, assignees or proper status tracking labels.</p>\n"
 		s += "<ul class=\"issues\">\n"
-		orphanedIssues.each { |issue| s += renderIssueLine(issue) }
+		orphanedIssues.each { |line|
+			issue = line['issue']
+			s += "<li class=\"issue orphan\"><a href=\"#{issue['html_url']}\">\##{issue['number']}</a>: #{issue['title']} <span class=\"orphanReason\">#{line['reason']}</span> <span class=\"author\">#{issue['user']['login']}</span></li>\n"
+
+		}
 		s += "</ul>\n"
 	end
 	
@@ -141,15 +213,32 @@ class GrindReport
 		return s
 	end
 	
-	def renderMilestone(milestone, issues)
-		s = "<div class=\"milestone\"><h2><a href=\"https://github.com/#{@user}/#{@repo}/issues?milestone=#{milestone.number}&state=open\">#{milestone.title}</a>, #{(100.0*milestone.closed_issues/(milestone.open_issues+milestone.closed_issues)).round(0)}%</h2>\n"
-		s += "<p class=\"overall_class\"><b>#{milestone.open_issues}</b> open, <b>#{milestone.closed_issues}</b> closed</p>\n"
-		if issues then
-			s += renderMilestoneIssues(issues, "new")
-			s += renderMilestoneIssues(issues, "reopened")
-			s += renderMilestoneIssues(issues, "active")
-			s += renderMilestoneIssues(issues, "resolved")
-			s += renderMilestoneIssues(issues, "closed")
+	def issueHasLabel?(issue, labelName)
+		return false unless issue["labels"]
+		issue["labels"].select do |label|
+			return true if label["name"] == labelName
+		end
+		
+		return false
+	end
+	
+	def renderMilestone(milestone, activeIssues, issues)
+		openIssues = issues.select { |issue| issue["state"] == "open" && issue["milestone"] && issue["milestone"]["title"] == milestone.title }
+		resolvedIssues = openIssues.select { |issue| issueHasLabel?(issue, "resolved") }
+		numResolved = resolvedIssues.length
+		percentageResolved = (100.0*numResolved/(milestone.open_issues+milestone.closed_issues)).round(0)
+		percentageClosed = (100.0*milestone.closed_issues/(milestone.open_issues+milestone.closed_issues)).round(0)
+		
+		s = "<div class=\"milestone\"><h2><a href=\"https://github.com/#{@user}/#{@repo}/issues?milestone=#{milestone.number}&state=open\">#{milestone.title}</a>, #{percentageClosed}%</h2>\n"
+		s += "<p class=\"overall_class\"><b>#{milestone.open_issues}</b> open, <b>#{milestone.closed_issues}</b> closed, <b>#{numResolved}</b> resolved</p>\n"
+		s += "<div class=\"meter\"><span class=\"closed\" style=\"width:#{percentageClosed}%\"></span><span class=\"resolved\" style=\"width:#{percentageResolved}%\"></span></div>"
+		
+		if activeIssues then
+			s += renderMilestoneIssues(activeIssues, "new")
+			s += renderMilestoneIssues(activeIssues, "reopened")
+			s += renderMilestoneIssues(activeIssues, "active")
+			s += renderMilestoneIssues(activeIssues, "resolved")
+			s += renderMilestoneIssues(activeIssues, "closed")
 		else
 			s += "<p class=\"no_activity\"><i>No activity today.</i></p>\n"
 		end
@@ -310,6 +399,11 @@ ul.issues a {
     color:#639A00;
 }
 
+ul.issues span.author {
+	color:black;
+	font-weight:bold;
+}
+
 p.issues i {
     color:#aaa;
     font-size:80%;
@@ -357,11 +451,209 @@ p.issues i {
     color:#000;
     font-weight:700;
 }
+
+.workload ul {
+    list-style-type: none;
+    margin-top:0;
+    padding: 0px 10px 0px 10px;
+}
+
+.workload span.user {
+    font-weight:bold;
+    color:black;
+}
+
+.workload span.count {
+    font-size:120%;
+    color:#015C65;
+}
+
+.workload span.percentage {
+    font-size:120%;
+    color:#639A00;
+}
+
+li.orphan span.orphanReason {
+    color:#999;
+}
+
+.meter { 
+	height: 20px;  /* Can be anything */
+	position: relative;
+	background: #555;
+	-moz-border-radius: 25px;
+	-webkit-border-radius: 25px;
+	border-radius: 25px;
+	padding: 10px;
+	-webkit-box-shadow: inset 0 -1px 1px rgba(255,255,255,0.3);
+	-moz-box-shadow   : inset 0 -1px 1px rgba(255,255,255,0.3);
+	box-shadow        : inset 0 -1px 1px rgba(255,255,255,0.3);
+}
+
+.meter > span {
+	display: block;
+	height: 100%;
+	   -webkit-border-top-right-radius: 8px;
+	-webkit-border-bottom-right-radius: 8px;
+	       -moz-border-radius-topright: 8px;
+	    -moz-border-radius-bottomright: 8px;
+	           border-top-right-radius: 8px;
+	        border-bottom-right-radius: 8px;
+	    -webkit-border-top-left-radius: 20px;
+	 -webkit-border-bottom-left-radius: 20px;
+	        -moz-border-radius-topleft: 20px;
+	     -moz-border-radius-bottomleft: 20px;
+	            border-top-left-radius: 20px;
+	         border-bottom-left-radius: 20px;
+	background-color: rgb(43,194,83);
+	background-image: -webkit-gradient(
+	  linear,
+	  left bottom,
+	  left top,
+	  color-stop(0, rgb(43,194,83)),
+	  color-stop(1, rgb(84,240,84))
+	 );
+	background-image: -webkit-linear-gradient(
+	  center bottom,
+	  rgb(43,194,83) 37%,
+	  rgb(84,240,84) 69%
+	 );
+	background-image: -moz-linear-gradient(
+	  center bottom,
+	  rgb(43,194,83) 37%,
+	  rgb(84,240,84) 69%
+	 );
+	background-image: -ms-linear-gradient(
+	  center bottom,
+	  rgb(43,194,83) 37%,
+	  rgb(84,240,84) 69%
+	 );
+	background-image: -o-linear-gradient(
+	  center bottom,
+	  rgb(43,194,83) 37%,
+	  rgb(84,240,84) 69%
+	 );
+	-webkit-box-shadow: 
+	  inset 0 2px 9px  rgba(255,255,255,0.3),
+	  inset 0 -2px 6px rgba(0,0,0,0.4);
+	-moz-box-shadow: 
+	  inset 0 2px 9px  rgba(255,255,255,0.3),
+	  inset 0 -2px 6px rgba(0,0,0,0.4);
+	position: relative;
+	overflow: hidden;
+    float:left;
+}
+
+.meter > span.closed {
+    background-color: #f1a165; 
+background-image: -webkit-gradient(linear, 0 0, 0 100%, from(#86d000), to(#639a00));
+background-image: -webkit-linear-gradient(#86d000, #639a00);
+background-image: -moz-linear-gradient(#86d000, #639a00);
+background-image: -o-linear-gradient(#86d000, #639a00);
+background-image: linear-gradient(#86d000, #639a00);
+}
+
+.meter > span.resolved {
+    	background-color: #02a6b6;
+    	background-image: -webkit-gradient(linear,left top,left bottom,color-stop(0, #02a6b6),color-stop(1, #015c65));
+	background-image: -webkit-linear-gradient(top, #02a6b6, #015c65); 
+        background-image: -moz-linear-gradient(top, #02a6b6, #015c65);
+        background-image: -ms-linear-gradient(top, #02a6b6, #015c65);
+        background-image: -o-linear-gradient(top, #02a6b6, #015c65);
+    	    -webkit-border-top-left-radius: 0px;
+	 -webkit-border-bottom-left-radius: 0px;
+	        -moz-border-radius-topleft: 0px;
+	     -moz-border-radius-bottomleft: 0px;
+	            border-top-left-radius: 0px;
+	         border-bottom-left-radius: 0px;
+}
+
+.meter > span:after {
+	content: "";
+	position: absolute;
+	top: 0; left: 0; bottom: 0; right: 0;
+	background-image: 
+	   -webkit-gradient(linear, 0 0, 100% 100%, 
+	      color-stop(.25, rgba(255, 255, 255, .2)), 
+	      color-stop(.25, transparent), color-stop(.5, transparent), 
+	      color-stop(.5, rgba(255, 255, 255, .2)), 
+	      color-stop(.75, rgba(255, 255, 255, .2)), 
+	      color-stop(.75, transparent), to(transparent)
+	   );
+	background-image: 
+		-webkit-linear-gradient(
+		  -45deg, 
+	      rgba(255, 255, 255, .2) 25%, 
+	      transparent 25%, 
+	      transparent 50%, 
+	      rgba(255, 255, 255, .2) 50%, 
+	      rgba(255, 255, 255, .2) 75%, 
+	      transparent 75%, 
+	      transparent
+	   );
+	background-image: 
+		-moz-linear-gradient(
+		  -45deg, 
+	      rgba(255, 255, 255, .2) 25%, 
+	      transparent 25%, 
+	      transparent 50%, 
+	      rgba(255, 255, 255, .2) 50%, 
+	      rgba(255, 255, 255, .2) 75%, 
+	      transparent 75%, 
+	      transparent
+	   );
+	background-image: 
+		-ms-linear-gradient(
+		  -45deg, 
+	      rgba(255, 255, 255, .2) 25%, 
+	      transparent 25%, 
+	      transparent 50%, 
+	      rgba(255, 255, 255, .2) 50%, 
+	      rgba(255, 255, 255, .2) 75%, 
+	      transparent 75%, 
+	      transparent
+	   );
+	background-image: 
+		-o-linear-gradient(
+		  -45deg, 
+	      rgba(255, 255, 255, .2) 25%, 
+	      transparent 25%, 
+	      transparent 50%, 
+	      rgba(255, 255, 255, .2) 50%, 
+	      rgba(255, 255, 255, .2) 75%, 
+	      transparent 75%, 
+	      transparent
+	   );
+	z-index: 1;
+	-webkit-background-size: 50px 50px;
+	-moz-background-size:    50px 50px;
+	background-size:         50px 50px;
+	-webkit-animation: move 2s linear infinite;
+	   -webkit-border-top-right-radius: 8px;
+	-webkit-border-bottom-right-radius: 8px;
+	       -moz-border-radius-topright: 8px;
+	    -moz-border-radius-bottomright: 8px;
+	           border-top-right-radius: 8px;
+	        border-bottom-right-radius: 8px;
+	    -webkit-border-top-left-radius: 20px;
+	 -webkit-border-bottom-left-radius: 20px;
+	        -moz-border-radius-topleft: 20px;
+	     -moz-border-radius-bottomleft: 20px;
+	            border-top-left-radius: 20px;
+	         border-bottom-left-radius: 20px;
+	overflow: hidden;
+}
 CSS_END
 
 	end
 end
 
-grind = GrindReport.new
-grind.sendRecap
+if ARGV.length == 2
+	user = { 'login'=>ARGV[0], 'email'=>ARGV[1] }
+	print "Reporting for Github user #{user['login']} (email: #{user['email']})\n"
+else
+	user = nil
+end
 
+grind = GrindReport.new
+grind.sendRecap(86400, user)

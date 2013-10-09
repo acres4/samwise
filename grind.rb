@@ -20,12 +20,13 @@ class GrindReport
 		@mailgunKey = ENV["MAILGUN_API_KEY"]
 		@mailgunDomain = ENV["MAILGUN_DOMAIN"]
 		@mailgunFrom = ENV["MAILGUN_FROM"]
+		@interval = 86400
 	
 		@github = Github.new(oauth_token:@token, user:@user, repo:@repo, org:@org)
 		@db = MongoClient.new(@dbhost, @dbport).db(@dbname)
 	end
 	
-	def sendRecap(interval=86400, user=nil) # 86400 = 24 hours in seconds
+	def sendRecap(user=nil) # 86400 = 24 hours in seconds
 		issuesByMilestone = {}
 
 		issues = @db["issues"].find().to_a
@@ -37,11 +38,11 @@ class GrindReport
 		end
 		
 		issues.each do |issue|
-			next unless dateStringInInterval(issue["updated_at"], interval)
+			next unless dateStringInInterval?(issue["updated_at"])
 			if issue["milestone"] then
 				issuesByMilestone[issue["milestone"]["title"]] ||= {}
 				milestone = issuesByMilestone[issue["milestone"]["title"]]
-				cat = getIssueCategory(issue, interval)
+				cat = getIssueCategory(issue)
 				milestone[cat] ||= []
 				milestone[cat].push(issue)
 			end
@@ -51,14 +52,16 @@ class GrindReport
 		people.each do |person|
 			puts "Sending to #{person['email']} (@#{person['login']})"
 			personalReport = report.sub("___PERSONAL_SECTION___", renderPersonal(person["login"], issues))
-			puts personalReport
-			sendEmail("Daily grind report", personalReport, [person["email"]])
+			# puts personalReport
+			sendEmail("Daily Grind", personalReport, [person["email"]])
 		end
 	end
 	
 	def renderReport(issues, issuesByMilestone)
 		milestoneData = @github.issues.milestones.list("acres4", "documentation")
-		s = "<html><head><style>#{stylesheet}</style></head><body><h1>Grind report for #{Time.now.strftime('%A, %B %e')}</h1>\n"
+		s = "<html><head><style>#{stylesheet}</style></head><body><h1>Grind for #{Time.now.strftime('%A, %B %e')}</h1>\n"
+		s += renderAccomplishments()
+		
 		milestoneActivityCounts = milestoneData.inject([]) { |counts, milestone| counts.push({ milestone:milestone, count:eventsForMilestone(issuesByMilestone[milestone.title])})}
 		milestoneActivityCounts.sort! { |a, b| b[:count] <=> a[:count] }
 		milestoneActivityCounts.each do |milestoneCount|
@@ -75,6 +78,43 @@ class GrindReport
 		s += "</body></html>"
 		
 		return s
+	end
+	
+	def renderAccomplishments
+		accomplishments = []
+		
+		eventUrl = "https://api:#{@mailgunKey}@api.mailgun.net/v2/#{@mailgunDomain}/events"
+		eventsStr = RestClient.get url = eventUrl,
+		  	:params => {
+			  	:'begin'       => (Time.now - @interval).rfc2822,
+			  	:'ascending'   => 'yes',
+			  	:'limit'       =>  50,
+			  	:'pretty'      => 'yes',
+			  	:'event' => 'stored' }
+		events = JSON.parse(eventsStr)
+		
+		events["items"].each do |item|
+			next unless item["message"]["recipients"].include? "grind@acres4.net"
+			begin
+				msgUrl = "https://api:#{@mailgunKey}@api.mailgun.net/v2/domains/#{@mailgunDomain}/messages/#{item['storage']['key']}"
+				email = JSON.parse(RestClient.get(url = msgUrl, :params => {}))
+				next unless email["From"] && email["body-plain"]
+				name = email["From"].gsub(/ <[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}>/, "")
+				body = email["body-plain"].gsub("\r\n", "<br />")
+				accomplishments.push({ 'name' => name, 'body' => body })
+			rescue RestClient::ResourceNotFound
+				next
+			end
+		end
+		
+		s = ""
+		s += "<div class=\"accomplishments\">\n"
+		s += "<h1>News</h1>\n"
+		accomplishments.each do |acc|
+			s += "<p><b>#{acc['name']}</b> #{acc['body']}</p>\n"
+		end
+		s += "<p><b>Share something in tomorrow's Grind.</b> Drop it in an e-mail to <a href=\"mailto:grind@acres4.net\">grind@acres4.net</a>. Your e-mail will be printed in the next Grind.</p>\n"
+		s += "</div>\n"
 	end
 	
 	def renderWorkload(issues)
@@ -111,7 +151,7 @@ class GrindReport
 	def renderPersonal(login, issues)
 		opened = []
 		s = "<div class=\"personal\">\n"
-		s += "<h1>Now Let's Talk About You, <a href=\"https://github.com/#{login}\">#{login}</a></h1>\n"
+		s += "<h1>Let's Talk About You, <a href=\"https://github.com/#{login}\">#{login}</a></h1>\n"
 		
 		openIssues = issues.select { |issue| issue["state"] == "open" }
 		openIssues.sort! { |a, b| b["updated_at"] <=> a["updated_at"] }
@@ -201,7 +241,7 @@ class GrindReport
 		end
 		
 		classes = [ "issue" ]
-		classes.push "active" if dateStringInInterval(issue["updated_at"], 86400)
+		classes.push "active" if dateStringInInterval?(issue["updated_at"])
 		milestone = issue['milestone'] ? issue['milestone']['title'] : 'No milestone'
 		"<li class=\"#{classes.join(' ')}\"><a href=\"#{issue['html_url']}\">\##{issue['number']}</a>: #{issue['title']} <span class=\"labels\">(<i>#{labels}</i>)</span> <span class=\"milestoneTag\">[<i>#{milestone}</i>]</span></li>\n"
 	end
@@ -255,38 +295,38 @@ class GrindReport
 		return s
 	end
 	
-	def getIssueCategory(issue, interval)
+	def getIssueCategory(issue)
 		if(issue["state"] == "open") then
-			return "resolved" if issueAddedLabelInInterval(issue, "resolved", interval)
-			return "new" if dateStringInInterval(issue["created_at"], interval)
-			return "reopened" if issueHasEventInInterval(issue, "reopened", interval)
+			return "resolved" if issueAddedLabelInInterval?(issue, "resolved")
+			return "new" if dateStringInInterval?(issue["created_at"])
+			return "reopened" if issueHasEventInInterval?(issue, "reopened")
 		else
-			return "closed" if dateStringInInterval(issue["closed_at"], interval)
+			return "closed" if dateStringInInterval?(issue["closed_at"])
 		end
 		
 		return "active"
 	end
 	
-	def dateStringInInterval(dateStr, interval)
+	def dateStringInInterval?(dateStr)
 		now = Time.now
 		date = DateTime.parse(dateStr).to_time
-		return now - date <= interval
+		return now - date <= @interval
 	end
 
-	def issueAddedLabelInInterval(issue, labelName, interval)
+	def issueAddedLabelInInterval?(issue, labelName)
 		issue["labelEvents"].each do |event|
 			next unless event["action"] == "added"
 			next unless event["label"]["name"] == labelName
-			return true if dateStringInInterval(event["date"], interval)
+			return true if dateStringInInterval?(event["date"])
 		end
 		
 		return false
 	end
 	
-	def issueHasEventInInterval(issue, eventType, interval)
+	def issueHasEventInInterval?(issue, eventType)
 		issue["events"].each do |event|
 			next unless event["event"] == eventType
-			return true if dateStringInInterval(event["created_at"], interval)
+			return true if dateStringInInterval?(event["created_at"])
 		end
 		
 		return false
@@ -308,32 +348,47 @@ class GrindReport
 
 body {
     font-family:"Open Sans", sans-serif;
-    background-color:#fff;
+    background: 
+        radial-gradient(circle, transparent 20%, slategray 20%, slategray 80%, transparent 80%, transparent),
+        radial-gradient(circle, transparent 20%, slategray 20%, slategray 80%, transparent 80%, transparent) 50px 50px,
+        linear-gradient(#A8B1BB 8px, transparent 8px) 0 -4px,
+        linear-gradient(90deg, #A8B1BB 8px, transparent 8px) -4px 0;
+    background-color: slategray;
+    background-size:100px 100px, 100px 100px, 50px 50px, 50px 50px;
+}
+
+body > h1:first-child {
+    color:white;
+    font-size:16pt;
+    font-weight:700;
+    text-align:right;
+}
+
+body > div {
+    -moz-border-top-left-radius: 25px;
+    border-top-left-radius: 25px;
+    
+    -moz-border-top-right-radius: 5px;
+    border-top-right-radius: 5px;
+
+    -moz-border-bottom-right-radius: 15px;
+    border-bottom-right-radius: 15px;
+
+    -moz-border-bottom-left-radius: 5px;
+    border-bottom-left-radius: 5px;
+
+    padding-top:0px;
+    margin-bottom:15px;
+    padding: 10px 10px 5px 10px;
+    background:rgba(255, 255, 255, 0.9);
 }
 
 h1 {
     font-family:"Roboto Slab", serif;
     font-weight:400;
+    font-size:20pt;
     color:#111;
-}
-
-.milestone {
-background: rgb(245,245,245); /* Old browsers */
-background: -moz-linear-gradient(top,  rgba(245,245,245,1) 0%, rgba(242,242,242,1) 50%, rgba(239,239,239,1) 51%, rgba(255,255,255,1) 100%); /* FF3.6+ */
-background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,rgba(245,245,245,1)), color-stop(50%,rgba(242,242,242,1)), color-stop(51%,rgba(239,239,239,1)), color-stop(100%,rgba(255,255,255,1))); /* Chrome,Safari4+ */
-background: -webkit-linear-gradient(top,  rgba(245,245,245,1) 0%,rgba(242,242,242,1) 50%,rgba(239,239,239,1) 51%,rgba(255,255,255,1) 100%); /* Chrome10+,Safari5.1+ */
-background: -o-linear-gradient(top,  rgba(245,245,245,1) 0%,rgba(242,242,242,1) 50%,rgba(239,239,239,1) 51%,rgba(255,255,255,1) 100%); /* Opera 11.10+ */
-background: -ms-linear-gradient(top,  rgba(245,245,245,1) 0%,rgba(242,242,242,1) 50%,rgba(239,239,239,1) 51%,rgba(255,255,255,1) 100%); /* IE10+ */
-background: linear-gradient(to bottom,  rgba(245,245,245,1) 0%,rgba(242,242,242,1) 50%,rgba(239,239,239,1) 51%,rgba(255,255,255,1) 100%); /* W3C */
-filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#f5f5f5', endColorstr='#ffffff',GradientType=0 ); /* IE6-9 */
-
-
-    -moz-border-radius: 15px;
-    border-radius: 15px;
-    border: 1px solid #eee;
-    
-    padding: 0 10px 0 10px;
-    margin-bottom:20px;
+    margin-top:0;
 }
 
 .milestone h2 {
@@ -643,6 +698,23 @@ background-image: linear-gradient(#86d000, #639a00);
 	         border-bottom-left-radius: 20px;
 	overflow: hidden;
 }
+
+.accomplishments {
+}
+
+.accomplishments b {
+    font-family:"Roboto Slab", serif;
+    color:#015C65;
+}
+
+.accomplishments a {
+    color:#639A00;
+}
+
+.accomplishments p:last-child b {
+    color:#ff0d00;
+}
+
 CSS_END
 
 	end
@@ -656,4 +728,4 @@ else
 end
 
 grind = GrindReport.new
-grind.sendRecap(86400, user)
+grind.sendRecap(user)

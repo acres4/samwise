@@ -100,5 +100,5 @@ loop do
 	samwise.update()
 	endTime = Time.new
 	puts "Updated; took #{endTime-startTime}s\n"
-	sleep(30)
+	sleep(60)
 end

@@ -190,7 +190,7 @@ class GrindReport
 			s += "<li class=\"issue orphan\"><a href=\"#{issue['html_url']}\">\##{issue['number']}</a>: #{issue['title']} <span class=\"orphanReason\">#{line['reason']}</span> <span class=\"author\">#{issue['user']['login']}</span></li>\n"
 
 		}
-		s += "</ul>\n"
+		s += "</ul></div>\n"
 	end
 	
 	def renderIssueLine(issue)

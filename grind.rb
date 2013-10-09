@@ -103,7 +103,7 @@ class GrindReport
 			percentage = (100.0*line["count"]/openIssues.length).round(0)
 			s += "<li><span class=\"user\">#{line['assignee']}</span>: <span class=\"count\">#{line['count']}</span> open issue#{line['count'] == 1 ? '' : 's'} (<span class=\"percentage\">#{percentage}%</span>)</li>\n"
 		}
-		s += "</ul>\n"
+		s += "</ul></div>\n"
 		
 		return s
 	end

@@ -44,11 +44,17 @@ class Samwise
 					elsif !storedIssue["milestone"] then
 						remarks.push("* _Milestone set to #{issueHash["milestone"]["title"]}")
 					end
+				elsif storedIssue["milestone"] then
+					remarks.push("* _Milestone #{storedIssue['milestone']['title']} removed. No new milestone set.")
 				end
 				
 				# If the assignee changed, that's worth remarking upon.
-				if issueHash["assignee"]["login"] != storedIssue["assignee"]["login"] then
-					remarks.push("* _Assignee changed from_ @#{storedIssue['assignee']['login']} _to_ @#{issueHash['assignee']['login']}")
+				if issueHash["assignee"] then
+					if issueHash["assignee"]["login"] != storedIssue["assignee"]["login"] then
+						remarks.push("* _Assignee changed from_ @#{storedIssue['assignee']['login']} _to_ @#{issueHash['assignee']['login']}")
+					end
+				elsif storedIssue["assignee"] then
+					remarks.push("* _Removed assignee_ @#{storedIssue['assignee']['login']}; no one is assigned")
 				end
 				
 				# Figure out which labels were added and removed.

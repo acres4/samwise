@@ -36,6 +36,11 @@ class Samwise
 				
 				# We will add comments for some of the changes we observe; comment text goes in the remarks array.
 				remarks = []
+
+				# If the milestone has changed, note it
+				if issueHash["milestone"]["title"] != storedIssue["milestone"]["title"] then 
+					remarks.push("* _Milestone changed from_ #{storedIssue["milestone"]["title"]} _to_ #{issueHash["milestone"]["title"]}")
+				end
 				
 				# If the assignee changed, that's worth remarking upon.
 				if issueHash["assignee"]["login"] != storedIssue["assignee"]["login"] then

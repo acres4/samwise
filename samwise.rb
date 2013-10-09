@@ -53,7 +53,7 @@ class Samwise
 					if storedIssue["assignee"] && issueHash["assignee"]["login"] != storedIssue["assignee"]["login"] then
 						remarks.push("* _Assignee changed from_ @#{storedIssue['assignee']['login']} _to_ @#{issueHash['assignee']['login']}")
 					elsif !storedIssue["assignee"] then
-						remarks.push("* _Assignee set to @#{issueHash['assignee']}")
+						remarks.push("* _Assignee set to @#{issueHash['assignee']['login']}")
 					end
 				elsif storedIssue["assignee"] then
 					remarks.push("* _Removed assignee_ @#{storedIssue['assignee']['login']}; no one is assigned")

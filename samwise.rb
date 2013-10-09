@@ -39,12 +39,12 @@ class Samwise
 
 				# If the milestone has changed, note it
 				if issueHash["milestone"]["title"] != storedIssue["milestone"]["title"] then 
-					remarks.push("* _Milestone changed from_ @#{storedIssue["milestone"]["title"] _to_ issueHash["milestone"]["title"]}")
+					remarks.push("* _Milestone changed from_ #{storedIssue["milestone"]["title"]} _to_ #{issueHash["milestone"]["title"]}")
 				end
 				
 				# If the assignee changed, that's worth remarking upon.
 				if issueHash["assignee"]["login"] != storedIssue["assignee"]["login"] then
-					remarks.push("* _Assignee changed from_ #{storedIssue['assignee']['login']} _to_ @#{issueHash['assignee']['login']}")
+					remarks.push("* _Assignee changed from_ @#{storedIssue['assignee']['login']} _to_ @#{issueHash['assignee']['login']}")
 				end
 				
 				# Figure out which labels were added and removed.

@@ -44,7 +44,7 @@ class Samwise
 				
 				# If the assignee changed, that's worth remarking upon.
 				if issueHash["assignee"]["login"] != storedIssue["assignee"]["login"] then
-					remarks.push("* _Assignee changed from_ @#{storedIssue['assignee']['login']} _to_ @#{issueHash['assignee']['login']}")
+					remarks.push("* _Assignee changed from_ #{storedIssue['assignee']['login']} _to_ @#{issueHash['assignee']['login']}")
 				end
 				
 				# Figure out which labels were added and removed.

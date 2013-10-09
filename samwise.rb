@@ -38,8 +38,12 @@ class Samwise
 				remarks = []
 
 				# If the milestone has changed, note it
-				if issueHash["milestone"]["title"] != storedIssue["milestone"]["title"] then 
-					remarks.push("* _Milestone changed from_ #{storedIssue["milestone"]["title"]} _to_ #{issueHash["milestone"]["title"]}")
+				if issueHash["milestone"] then
+					if storedIssue["milestone"] && issueHash["milestone"]["title"] != storedIssue["milestone"]["title"] then 
+						remarks.push("* _Milestone changed from_ #{storedIssue["milestone"]["title"]} _to_ #{issueHash["milestone"]["title"]}")
+					elsif !storedIssue["milestone"] then
+						remarks.push("* _Milestone set to #{issueHash["milestone"]["title"]}")
+					end
 				end
 				
 				# If the assignee changed, that's worth remarking upon.

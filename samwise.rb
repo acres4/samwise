@@ -42,10 +42,10 @@ class Samwise
 					if storedIssue["milestone"] && issueHash["milestone"]["title"] != storedIssue["milestone"]["title"] then 
 						remarks.push("* _Milestone changed from_ #{storedIssue["milestone"]["title"]} _to_ #{issueHash["milestone"]["title"]}")
 					elsif !storedIssue["milestone"] then
-						remarks.push("* _Milestone set to #{issueHash["milestone"]["title"]}")
+						remarks.push("* _Milestone set to_ #{issueHash["milestone"]["title"]}")
 					end
 				elsif storedIssue["milestone"] then
-					remarks.push("* _Milestone #{storedIssue['milestone']['title']} removed. No new milestone set.")
+					remarks.push("* _Milestone_ #{storedIssue['milestone']['title']} _removed. No new milestone set._")
 				end
 				
 				# If the assignee changed, that's worth remarking upon.

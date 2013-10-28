@@ -123,8 +123,11 @@ class GrindReport
 		openIssues.each do |issue|
 			next unless issue["assignee"] && issue["assignee"]["login"]
 			user = issue["assignee"]["login"]
-			issueCountsByAssignee[user] = 0 unless issueCountsByAssignee[user]
-			issueCountsByAssignee[user] += 1
+			issueCountsByAssignee[user] ||= {'total' => 0, 'active' => 0, 'resolved' => 0, 'code complete' => 0 } unless issueCountsByAssignee[user]
+			issueCountsByAssignee[user]["total"] += 1
+			issueCountsByAssignee[user]["active"] += 1 if(issueHasLabel?(issue, "active"))
+			issueCountsByAssignee[user]["resolved"] += 1 if(issueHasLabel?(issue, "resolved"))
+			issueCountsByAssignee[user]["code complete"] += 1 if(issueHasLabel?(issue, "code complete"))
 		end
 		
 		issueCounts = []
@@ -132,7 +135,7 @@ class GrindReport
 			issueCounts.push({'assignee'=>assignee, 'count'=>count})
 		end
 		
-		issueCounts.sort! { |a, b| b["count"] <=> a["count"] }
+		issueCounts.sort! { |a, b| b["count"]["total"] <=> a["count"]["total"] }
 		
 		s = ""
 		s += "<div class=\"workload\">"
@@ -140,8 +143,12 @@ class GrindReport
 		s += "<p>This is a breakdown of how many open issues each assignee has across all projects.</p>"
 		s += "<ul>\n"
 		issueCounts.each { |line|
-			percentage = (100.0*line["count"]/openIssues.length).round(0)
-			s += "<li><span class=\"user\">#{line['assignee']}</span>: <span class=\"count\">#{line['count']}</span> open issue#{line['count'] == 1 ? '' : 's'} (<span class=\"percentage\">#{percentage}%</span>)</li>\n"
+			userUrl = "https://github.com/#{@user}/#{@repo}/issues/assigned/#{line['assignee']}"
+			totalUrl = userUrl+"?state=open&page=1"
+			activeUrl = totalUrl+"&labels=active"
+			codeUrl = totalUrl+"&labels=code+complete"
+			resolvedUrl = totalUrl+"&labels=resolved"
+			s += "<li><a href=\"#{userUrl}\">#{line['assignee']}</a>: <span class=\"count\"><a href=\"#{totalUrl}\">#{line['count']['total']}</a> issue#{line['count']['total'] == 1 ? '' : 's'}, </span><a href=\"#{activeUrl}\">#{line['count']['active']}</a> act, </span><a href=\"#{codeUrl}\">#{line['count']['code complete']}</a> code, </span><a href=\"#{resolvedUrl}\">#{line['count']['resolved']}</a> res</span></li>\n"
 		}
 		s += "</ul></div>\n"
 		
@@ -344,377 +351,380 @@ class GrindReport
 	
 	def stylesheet
 		 <<CSS_END
-@import url(http://fonts.googleapis.com/css?family=Roboto+Slab:300,400,700);
-@import url(http://fonts.googleapis.com/css?family=Open+Sans:300);
+     @import url(http://fonts.googleapis.com/css?family=Roboto+Slab:300,400,700);
+     @import url(http://fonts.googleapis.com/css?family=Open+Sans:300);
 
-body {
-    font-family:"Open Sans", sans-serif;
-    background: 
-        radial-gradient(circle, transparent 20%, slategray 20%, slategray 80%, transparent 80%, transparent),
-        radial-gradient(circle, transparent 20%, slategray 20%, slategray 80%, transparent 80%, transparent) 50px 50px,
-        linear-gradient(#A8B1BB 8px, transparent 8px) 0 -4px,
-        linear-gradient(90deg, #A8B1BB 8px, transparent 8px) -4px 0;
-    background-color: slategray;
-    background-size:100px 100px, 100px 100px, 50px 50px, 50px 50px;
-}
+     body {
+         font-family:"Open Sans", sans-serif;
+         background: 
+             radial-gradient(circle, transparent 20%, slategray 20%, slategray 80%, transparent 80%, transparent),
+             radial-gradient(circle, transparent 20%, slategray 20%, slategray 80%, transparent 80%, transparent) 50px 50px,
+             linear-gradient(#A8B1BB 8px, transparent 8px) 0 -4px,
+             linear-gradient(90deg, #A8B1BB 8px, transparent 8px) -4px 0;
+         background-color: slategray;
+         background-size:100px 100px, 100px 100px, 50px 50px, 50px 50px;
+     }
 
-body > h1:first-child {
-    color:white;
-    font-size:16pt;
-    font-weight:700;
-    text-align:right;
-}
+     body > h1:first-child {
+         color:white;
+         font-size:16pt;
+         font-weight:700;
+         text-align:right;
+     }
 
-body > div {
-    -moz-border-top-left-radius: 25px;
-    border-top-left-radius: 25px;
-    
-    -moz-border-top-right-radius: 5px;
-    border-top-right-radius: 5px;
+     body > div {
+         -moz-border-top-left-radius: 25px;
+         border-top-left-radius: 25px;
 
-    -moz-border-bottom-right-radius: 15px;
-    border-bottom-right-radius: 15px;
+         -moz-border-top-right-radius: 5px;
+         border-top-right-radius: 5px;
 
-    -moz-border-bottom-left-radius: 5px;
-    border-bottom-left-radius: 5px;
+         -moz-border-bottom-right-radius: 15px;
+         border-bottom-right-radius: 15px;
 
-    padding-top:0px;
-    margin-bottom:15px;
-    padding: 10px 10px 5px 10px;
-    background:rgba(255, 255, 255, 0.9);
-}
+         -moz-border-bottom-left-radius: 5px;
+         border-bottom-left-radius: 5px;
 
-h1 {
-    font-family:"Roboto Slab", serif;
-    font-weight:400;
-    font-size:20pt;
-    color:#111;
-    margin-top:0;
-}
+         padding-top:0px;
+         margin-bottom:15px;
+         padding: 10px 10px 5px 10px;
+         background:rgba(255, 255, 255, 0.9);
+     }
 
-.milestone h2 {
-    font-family:"Roboto Slab", serif;
-    font-weight:300;
-    color:#000;
-    margin-top:0;
-    padding-top:0;
-    padding-bottom:0;
-    margin-bottom:0;
-}
+     h1 {
+         font-family:"Roboto Slab", serif;
+         font-weight:400;
+         font-size:20pt;
+         color:#111;
+         margin-top:0;
+     }
 
-.milestone h3 {
-    font-family:"Roboto Slab", serif;
-    color:#015C65;
-    padding-bottom:0;
-    margin-bottom:0;
-}
+     .milestone h2 {
+         font-family:"Roboto Slab", serif;
+         font-weight:300;
+         color:#000;
+         margin-top:0;
+         padding-top:0;
+         padding-bottom:0;
+         margin-bottom:0;
+     }
 
-.milestone span.milestoneTag {
-    display:none
-}
+     .milestone h3 {
+         font-family:"Roboto Slab", serif;
+         color:#015C65;
+         padding-bottom:0;
+         margin-bottom:0;
+     }
 
-h3 a {
-    color:#FF0D00;
-}
+     .milestone span.milestoneTag {
+         display:none
+     }
 
-h2 a {
-    color:#FF0D00;
-}
+     h3 a {
+         color:#FF0D00;
+     }
 
-h1 a {
-    color:#FF0D00;
-}
+     h2 a {
+         color:#FF0D00;
+     }
 
-.milestone p a {
-    font-family:"Roboto Slab",serif;
-    font-weight:300;
-    color:#639A00
-}
+     h1 a {
+         color:#FF0D00;
+     }
 
-.milestone p a:visited {
-    color:#639A00
-}
+     .milestone p a {
+         font-family:"Roboto Slab",serif;
+         font-weight:300;
+         color:#639A00
+     }
 
-p.overall_count {
-    margin-top:0;
-    padding-top:0;
-}
+     .milestone p a:visited {
+         color:#639A00
+     }
 
-.overall_count b {
-    color:#015C65;
-    font-size:120%;
-}
+     p.overall_count {
+         margin-top:0;
+         padding-top:0;
+     }
 
-ul.issues {
-    list-style-type: none;
-    margin-top:0;
-    padding: 0px 10px 0px 10px;
-}
+     .overall_count b {
+         color:#015C65;
+         font-size:120%;
+     }
 
-ul.issues a {
-    color:#639A00;
-}
+     ul.issues {
+         list-style-type: none;
+         margin-top:0;
+         padding: 0px 10px 0px 10px;
+     }
 
-ul.issues span.author {
-	color:black;
-	font-weight:bold;
-}
+     ul.issues a {
+         color:#639A00;
+     }
 
-p.issues i {
-    color:#aaa;
-    font-size:80%;
-}
+     ul.issues span.author {
+     	color:black;
+     	font-weight:bold;
+     }
 
-.stanza {
-    font-family:"Roboto Slab",serif;
-    font-style:italic;
-    font-size:8px;
-    color:#aaa;
-}
+     p.issues i {
+         color:#aaa;
+         font-size:80%;
+     }
 
-.personal h2 {
-    font-family:"Roboto Slab", serif;
-    font-weight:300;
-    color:#000;
-}
+     .stanza {
+         font-family:"Roboto Slab",serif;
+         font-style:italic;
+         font-size:8px;
+         color:#aaa;
+     }
 
-.personal li {
-    color:#777;
-}
+     .personal h2 {
+         font-family:"Roboto Slab", serif;
+         font-weight:300;
+         color:#000;
+     }
 
-.personal li.active {
-    color:#000;
-}
+     .personal li {
+         color:#777;
+     }
 
-.personal span.milestoneTag {
-    font-weight:bold;
-}
+     .personal li.active {
+         color:#000;
+     }
 
-.personal span.milestoneTag i {
-    font-style:normal;
-}
+     .personal span.milestoneTag {
+         font-weight:bold;
+     }
 
-.section h2 {
-    margin-bottom:0;
-    color:#015C65;
-}
-.section ul {
-    margin-top: 0;
-    padding-top: 0;
-}
+     .personal span.milestoneTag i {
+         font-style:normal;
+     }
 
-.section h2 span.count {
-    color:#000;
-    font-weight:700;
-}
+     .section h2 {
+         margin-bottom:0;
+         color:#015C65;
+     }
+     .section ul {
+         margin-top: 0;
+         padding-top: 0;
+     }
 
-.workload ul {
-    list-style-type: none;
-    margin-top:0;
-    padding: 0px 10px 0px 10px;
-}
+     .section h2 span.count {
+         color:#000;
+         font-weight:700;
+     }
 
-.workload span.user {
-    font-weight:bold;
-    color:black;
-}
+     .workload ul {
+         list-style-type: none;
+         margin-top:0;
+         padding: 0px 10px 0px 10px;
+     }
 
-.workload span.count {
-    font-size:120%;
-    color:#015C65;
-}
+     .workload a {
+         font-weight:bold;
+         color:#015C65;
+     }
 
-.workload span.percentage {
-    font-size:120%;
-    color:#639A00;
-}
+     .codecomplete, .active, .resolved {
+     }
 
-li.orphan span.orphanReason {
-    color:#999;
-}
+     .workload span a {
+         color: #639A00;
+     }
 
-.meter { 
-	height: 20px;  /* Can be anything */
-	position: relative;
-	background: #555;
-	-moz-border-radius: 25px;
-	-webkit-border-radius: 25px;
-	border-radius: 25px;
-	padding: 10px;
-	-webkit-box-shadow: inset 0 -1px 1px rgba(255,255,255,0.3);
-	-moz-box-shadow   : inset 0 -1px 1px rgba(255,255,255,0.3);
-	box-shadow        : inset 0 -1px 1px rgba(255,255,255,0.3);
-}
+     .workload span.percentage {
+         font-size:120%;
+         color:#639A00;
+     }
 
-.meter > span {
-	display: block;
-	height: 100%;
-	   -webkit-border-top-right-radius: 8px;
-	-webkit-border-bottom-right-radius: 8px;
-	       -moz-border-radius-topright: 8px;
-	    -moz-border-radius-bottomright: 8px;
-	           border-top-right-radius: 8px;
-	        border-bottom-right-radius: 8px;
-	    -webkit-border-top-left-radius: 20px;
-	 -webkit-border-bottom-left-radius: 20px;
-	        -moz-border-radius-topleft: 20px;
-	     -moz-border-radius-bottomleft: 20px;
-	            border-top-left-radius: 20px;
-	         border-bottom-left-radius: 20px;
-	background-color: rgb(43,194,83);
-	background-image: -webkit-gradient(
-	  linear,
-	  left bottom,
-	  left top,
-	  color-stop(0, rgb(43,194,83)),
-	  color-stop(1, rgb(84,240,84))
-	 );
-	background-image: -webkit-linear-gradient(
-	  center bottom,
-	  rgb(43,194,83) 37%,
-	  rgb(84,240,84) 69%
-	 );
-	background-image: -moz-linear-gradient(
-	  center bottom,
-	  rgb(43,194,83) 37%,
-	  rgb(84,240,84) 69%
-	 );
-	background-image: -ms-linear-gradient(
-	  center bottom,
-	  rgb(43,194,83) 37%,
-	  rgb(84,240,84) 69%
-	 );
-	background-image: -o-linear-gradient(
-	  center bottom,
-	  rgb(43,194,83) 37%,
-	  rgb(84,240,84) 69%
-	 );
-	-webkit-box-shadow: 
-	  inset 0 2px 9px  rgba(255,255,255,0.3),
-	  inset 0 -2px 6px rgba(0,0,0,0.4);
-	-moz-box-shadow: 
-	  inset 0 2px 9px  rgba(255,255,255,0.3),
-	  inset 0 -2px 6px rgba(0,0,0,0.4);
-	position: relative;
-	overflow: hidden;
-    float:left;
-}
+     li.orphan span.orphanReason {
+         color:#999;
+     }
 
-.meter > span.closed {
-    background-color: #f1a165; 
-background-image: -webkit-gradient(linear, 0 0, 0 100%, from(#86d000), to(#639a00));
-background-image: -webkit-linear-gradient(#86d000, #639a00);
-background-image: -moz-linear-gradient(#86d000, #639a00);
-background-image: -o-linear-gradient(#86d000, #639a00);
-background-image: linear-gradient(#86d000, #639a00);
-}
+     .meter { 
+     	height: 20px;  /* Can be anything */
+     	position: relative;
+     	background: #555;
+     	-moz-border-radius: 25px;
+     	-webkit-border-radius: 25px;
+     	border-radius: 25px;
+     	padding: 10px;
+     	-webkit-box-shadow: inset 0 -1px 1px rgba(255,255,255,0.3);
+     	-moz-box-shadow   : inset 0 -1px 1px rgba(255,255,255,0.3);
+     	box-shadow        : inset 0 -1px 1px rgba(255,255,255,0.3);
+     }
 
-.meter > span.resolved {
-    	background-color: #02a6b6;
-    	background-image: -webkit-gradient(linear,left top,left bottom,color-stop(0, #02a6b6),color-stop(1, #015c65));
-	background-image: -webkit-linear-gradient(top, #02a6b6, #015c65); 
-        background-image: -moz-linear-gradient(top, #02a6b6, #015c65);
-        background-image: -ms-linear-gradient(top, #02a6b6, #015c65);
-        background-image: -o-linear-gradient(top, #02a6b6, #015c65);
-    	    -webkit-border-top-left-radius: 0px;
-	 -webkit-border-bottom-left-radius: 0px;
-	        -moz-border-radius-topleft: 0px;
-	     -moz-border-radius-bottomleft: 0px;
-	            border-top-left-radius: 0px;
-	         border-bottom-left-radius: 0px;
-}
+     .meter > span {
+     	display: block;
+     	height: 100%;
+     	   -webkit-border-top-right-radius: 8px;
+     	-webkit-border-bottom-right-radius: 8px;
+     	       -moz-border-radius-topright: 8px;
+     	    -moz-border-radius-bottomright: 8px;
+     	           border-top-right-radius: 8px;
+     	        border-bottom-right-radius: 8px;
+     	    -webkit-border-top-left-radius: 20px;
+     	 -webkit-border-bottom-left-radius: 20px;
+     	        -moz-border-radius-topleft: 20px;
+     	     -moz-border-radius-bottomleft: 20px;
+     	            border-top-left-radius: 20px;
+     	         border-bottom-left-radius: 20px;
+     	background-color: rgb(43,194,83);
+     	background-image: -webkit-gradient(
+     	  linear,
+     	  left bottom,
+     	  left top,
+     	  color-stop(0, rgb(43,194,83)),
+     	  color-stop(1, rgb(84,240,84))
+     	 );
+     	background-image: -webkit-linear-gradient(
+     	  center bottom,
+     	  rgb(43,194,83) 37%,
+     	  rgb(84,240,84) 69%
+     	 );
+     	background-image: -moz-linear-gradient(
+     	  center bottom,
+     	  rgb(43,194,83) 37%,
+     	  rgb(84,240,84) 69%
+     	 );
+     	background-image: -ms-linear-gradient(
+     	  center bottom,
+     	  rgb(43,194,83) 37%,
+     	  rgb(84,240,84) 69%
+     	 );
+     	background-image: -o-linear-gradient(
+     	  center bottom,
+     	  rgb(43,194,83) 37%,
+     	  rgb(84,240,84) 69%
+     	 );
+     	-webkit-box-shadow: 
+     	  inset 0 2px 9px  rgba(255,255,255,0.3),
+     	  inset 0 -2px 6px rgba(0,0,0,0.4);
+     	-moz-box-shadow: 
+     	  inset 0 2px 9px  rgba(255,255,255,0.3),
+     	  inset 0 -2px 6px rgba(0,0,0,0.4);
+     	position: relative;
+     	overflow: hidden;
+         float:left;
+     }
 
-.meter > span:after {
-	content: "";
-	position: absolute;
-	top: 0; left: 0; bottom: 0; right: 0;
-	background-image: 
-	   -webkit-gradient(linear, 0 0, 100% 100%, 
-	      color-stop(.25, rgba(255, 255, 255, .2)), 
-	      color-stop(.25, transparent), color-stop(.5, transparent), 
-	      color-stop(.5, rgba(255, 255, 255, .2)), 
-	      color-stop(.75, rgba(255, 255, 255, .2)), 
-	      color-stop(.75, transparent), to(transparent)
-	   );
-	background-image: 
-		-webkit-linear-gradient(
-		  -45deg, 
-	      rgba(255, 255, 255, .2) 25%, 
-	      transparent 25%, 
-	      transparent 50%, 
-	      rgba(255, 255, 255, .2) 50%, 
-	      rgba(255, 255, 255, .2) 75%, 
-	      transparent 75%, 
-	      transparent
-	   );
-	background-image: 
-		-moz-linear-gradient(
-		  -45deg, 
-	      rgba(255, 255, 255, .2) 25%, 
-	      transparent 25%, 
-	      transparent 50%, 
-	      rgba(255, 255, 255, .2) 50%, 
-	      rgba(255, 255, 255, .2) 75%, 
-	      transparent 75%, 
-	      transparent
-	   );
-	background-image: 
-		-ms-linear-gradient(
-		  -45deg, 
-	      rgba(255, 255, 255, .2) 25%, 
-	      transparent 25%, 
-	      transparent 50%, 
-	      rgba(255, 255, 255, .2) 50%, 
-	      rgba(255, 255, 255, .2) 75%, 
-	      transparent 75%, 
-	      transparent
-	   );
-	background-image: 
-		-o-linear-gradient(
-		  -45deg, 
-	      rgba(255, 255, 255, .2) 25%, 
-	      transparent 25%, 
-	      transparent 50%, 
-	      rgba(255, 255, 255, .2) 50%, 
-	      rgba(255, 255, 255, .2) 75%, 
-	      transparent 75%, 
-	      transparent
-	   );
-	z-index: 1;
-	-webkit-background-size: 50px 50px;
-	-moz-background-size:    50px 50px;
-	background-size:         50px 50px;
-	-webkit-animation: move 2s linear infinite;
-	   -webkit-border-top-right-radius: 8px;
-	-webkit-border-bottom-right-radius: 8px;
-	       -moz-border-radius-topright: 8px;
-	    -moz-border-radius-bottomright: 8px;
-	           border-top-right-radius: 8px;
-	        border-bottom-right-radius: 8px;
-	    -webkit-border-top-left-radius: 20px;
-	 -webkit-border-bottom-left-radius: 20px;
-	        -moz-border-radius-topleft: 20px;
-	     -moz-border-radius-bottomleft: 20px;
-	            border-top-left-radius: 20px;
-	         border-bottom-left-radius: 20px;
-	overflow: hidden;
-}
+     .meter > span.closed {
+         background-color: #f1a165; 
+     background-image: -webkit-gradient(linear, 0 0, 0 100%, from(#86d000), to(#639a00));
+     background-image: -webkit-linear-gradient(#86d000, #639a00);
+     background-image: -moz-linear-gradient(#86d000, #639a00);
+     background-image: -o-linear-gradient(#86d000, #639a00);
+     background-image: linear-gradient(#86d000, #639a00);
+     }
 
-.accomplishments {
-}
+     .meter > span.resolved {
+         	background-color: #02a6b6;
+         	background-image: -webkit-gradient(linear,left top,left bottom,color-stop(0, #02a6b6),color-stop(1, #015c65));
+     	background-image: -webkit-linear-gradient(top, #02a6b6, #015c65); 
+             background-image: -moz-linear-gradient(top, #02a6b6, #015c65);
+             background-image: -ms-linear-gradient(top, #02a6b6, #015c65);
+             background-image: -o-linear-gradient(top, #02a6b6, #015c65);
+         	    -webkit-border-top-left-radius: 0px;
+     	 -webkit-border-bottom-left-radius: 0px;
+     	        -moz-border-radius-topleft: 0px;
+     	     -moz-border-radius-bottomleft: 0px;
+     	            border-top-left-radius: 0px;
+     	         border-bottom-left-radius: 0px;
+     }
 
-.accomplishments b {
-    font-family:"Roboto Slab", serif;
-    color:#015C65;
-}
+     .meter > span:after {
+     	content: "";
+     	position: absolute;
+     	top: 0; left: 0; bottom: 0; right: 0;
+     	background-image: 
+     	   -webkit-gradient(linear, 0 0, 100% 100%, 
+     	      color-stop(.25, rgba(255, 255, 255, .2)), 
+     	      color-stop(.25, transparent), color-stop(.5, transparent), 
+     	      color-stop(.5, rgba(255, 255, 255, .2)), 
+     	      color-stop(.75, rgba(255, 255, 255, .2)), 
+     	      color-stop(.75, transparent), to(transparent)
+     	   );
+     	background-image: 
+     		-webkit-linear-gradient(
+     		  -45deg, 
+     	      rgba(255, 255, 255, .2) 25%, 
+     	      transparent 25%, 
+     	      transparent 50%, 
+     	      rgba(255, 255, 255, .2) 50%, 
+     	      rgba(255, 255, 255, .2) 75%, 
+     	      transparent 75%, 
+     	      transparent
+     	   );
+     	background-image: 
+     		-moz-linear-gradient(
+     		  -45deg, 
+     	      rgba(255, 255, 255, .2) 25%, 
+     	      transparent 25%, 
+     	      transparent 50%, 
+     	      rgba(255, 255, 255, .2) 50%, 
+     	      rgba(255, 255, 255, .2) 75%, 
+     	      transparent 75%, 
+     	      transparent
+     	   );
+     	background-image: 
+     		-ms-linear-gradient(
+     		  -45deg, 
+     	      rgba(255, 255, 255, .2) 25%, 
+     	      transparent 25%, 
+     	      transparent 50%, 
+     	      rgba(255, 255, 255, .2) 50%, 
+     	      rgba(255, 255, 255, .2) 75%, 
+     	      transparent 75%, 
+     	      transparent
+     	   );
+     	background-image: 
+     		-o-linear-gradient(
+     		  -45deg, 
+     	      rgba(255, 255, 255, .2) 25%, 
+     	      transparent 25%, 
+     	      transparent 50%, 
+     	      rgba(255, 255, 255, .2) 50%, 
+     	      rgba(255, 255, 255, .2) 75%, 
+     	      transparent 75%, 
+     	      transparent
+     	   );
+     	z-index: 1;
+     	-webkit-background-size: 50px 50px;
+     	-moz-background-size:    50px 50px;
+     	background-size:         50px 50px;
+     	-webkit-animation: move 2s linear infinite;
+     	   -webkit-border-top-right-radius: 8px;
+     	-webkit-border-bottom-right-radius: 8px;
+     	       -moz-border-radius-topright: 8px;
+     	    -moz-border-radius-bottomright: 8px;
+     	           border-top-right-radius: 8px;
+     	        border-bottom-right-radius: 8px;
+     	    -webkit-border-top-left-radius: 20px;
+     	 -webkit-border-bottom-left-radius: 20px;
+     	        -moz-border-radius-topleft: 20px;
+     	     -moz-border-radius-bottomleft: 20px;
+     	            border-top-left-radius: 20px;
+     	         border-bottom-left-radius: 20px;
+     	overflow: hidden;
+     }
 
-.accomplishments a {
-    color:#639A00;
-}
+     .accomplishments {
+     }
 
-.accomplishments p:last-child b {
-    color:#ff0d00;
-}
+     .accomplishments b {
+         font-family:"Roboto Slab", serif;
+         color:#015C65;
+     }
+
+     .accomplishments a {
+         color:#639A00;
+     }
+
+     .accomplishments p:last-child b {
+         color:#ff0d00;
+     }
+
 
 CSS_END
 

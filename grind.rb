@@ -266,8 +266,9 @@ class GrindReport
 		openIssues = issues.select { |issue| issue["state"] == "open" && issue["milestone"] && issue["milestone"]["title"] == milestone.title }
 		resolvedIssues = openIssues.select { |issue| issueHasLabel?(issue, "resolved") }
 		numResolved = resolvedIssues.length
-		percentageResolved = (100.0*numResolved/(milestone.open_issues+milestone.closed_issues)).round(0)
-		percentageClosed = (100.0*milestone.closed_issues/(milestone.open_issues+milestone.closed_issues)).round(0)
+		totalIssues = milestone.open_issues+milestone.closed_issues
+		percentageResolved = totalIssues > 0 ? (100.0*numResolved/totalIssues).round(0) : 0
+		percentageClosed = totalIssues > 0 ? (100.0*milestone.closed_issues/totalIssues).round(0) : 0
 		
 		s = "<div class=\"milestone\"><h2><a href=\"https://github.com/#{@user}/#{@repo}/issues?milestone=#{milestone.number}&state=open\">#{milestone.title}</a>, #{percentageClosed}%</h2>\n"
 		s += "<p class=\"overall_class\"><b>#{milestone.open_issues}</b> open, <b>#{milestone.closed_issues}</b> closed, <b>#{numResolved}</b> resolved</p>\n"

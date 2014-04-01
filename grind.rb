@@ -60,7 +60,7 @@ class GrindReport
 	def renderReport(issues, issuesByMilestone)
 		milestoneData = @github.issues.milestones.list("acres4", "documentation")
 		s = "<html><head><style>#{stylesheet}</style></head><body><h1>Grind for #{Time.now.strftime('%A, %B %e')}</h1>\n"
-		s += renderAccomplishments()
+		# s += renderAccomplishments()
 		
 		milestoneActivityCounts = milestoneData.inject([]) { |counts, milestone| counts.push({ milestone:milestone, count:eventsForMilestone(issuesByMilestone[milestone.title])})}
 		milestoneActivityCounts.sort! { |a, b| b[:count] <=> a[:count] }

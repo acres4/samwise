@@ -83,7 +83,11 @@ class Samwise
 				# Add the remarks to Github
 				if remarks.length > 0 then
 					joinedRemarks = remarks.join("\n");
-					timestamp = DateTime.parse(issueHash["updated_at"]).strftime("%A, %B %e, %l:%M %P, %Z")
+					dt = DateTime.parse(issueHash["updated_at"])
+					newtime = Time.new(dt.year, dt.month, dt.day, dt.hour, dt.min, dt.sec, dt.zone)
+					pstz = newtime-(8*60*60)
+					dt2 = DateTime.new(pstz.year, pstz.month, pstz.day, pstz.hour, pstz.min, pstz.sec, Rational(pstz.gmt_offset / 3600, 24))
+					timestamp = dt2.strftime("%A, %B %e, %l:%M %P, %Z")
 					commentBody = "#{timestamp}\n#{joinedRemarks}"
 					@github.issues.comments.create(@user, @repo, issue.number, body:commentBody)
 				end
